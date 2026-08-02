@@ -31,10 +31,8 @@ resource "azurerm_cognitive_deployment" "this" {
     version = each.value.model_version
   }
 
-  # azurerm 3.x spells this `scale`/`type`; 4.x renames it to `sku`/`name` for
-  # the same values ("GlobalStandard", "Standard", ...).
-  scale {
-    type     = each.value.sku_name
+  sku {
+    name     = each.value.sku_name
     capacity = each.value.capacity
   }
 

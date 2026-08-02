@@ -4,7 +4,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.117"
+      version = "~> 5.0"
     }
   }
 
@@ -83,6 +83,6 @@ resource "azurerm_role_assignment" "state_blob_owner" {
 
 resource "azurerm_storage_container" "state" {
   name                  = var.state_container_name
-  storage_account_name  = azurerm_storage_account.state.name
+  storage_account_id    = azurerm_storage_account.state.id
   container_access_type = "private"
 }
