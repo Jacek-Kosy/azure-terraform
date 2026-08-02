@@ -13,11 +13,11 @@ variable "tenant_id" {
 variable "resource_group_name" {
   description = "Resource group name for the production environment"
   type        = string
-  default     = "rg-prod-example"
+  default     = "rg-prod-vectordb"
 }
 
 variable "location" {
-  description = "Azure region"
+  description = "Azure region. Not westeurope: it is closed to new customers in this subscription and rejects new resources with RequestDisallowedByAzure."
   type        = string
   default     = "northeurope"
 }

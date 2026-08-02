@@ -44,6 +44,11 @@ module "state_resource_group" {
   tags     = var.tags
 }
 
+# A default_action of Deny needs an IP allowlist, which locks the backend to
+# whichever address a laptop happens to have that day and breaks `terraform init`
+# from anywhere else. The real fix is a private endpoint, which needs a VNet this
+# project does not yet have. Revisit before prod carries anything real.
+#trivy:ignore:AVD-AZU-0012
 resource "azurerm_storage_account" "state" {
   name                = var.state_storage_account_name
   resource_group_name = module.state_resource_group.resource_group_name
