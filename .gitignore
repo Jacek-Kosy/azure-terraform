@@ -1,8 +1,10 @@
 .terraform/
 *.tfstate
 *.tfstate.*
-.terraform.lock.hcl
 .crash
+
+# .terraform.lock.hcl is intentionally NOT ignored: committing it pins provider
+# versions so local runs and CI resolve identically.
 *.tfvars
 !important.tfvars.example
 .DS_Store
