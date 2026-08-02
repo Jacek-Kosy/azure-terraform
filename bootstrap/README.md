@@ -31,18 +31,25 @@ terraform -chdir=bootstrap init && terraform -chdir=bootstrap apply
 
 The storage account name must be globally unique. If `sttfstate964eeda7` is
 taken, change `state_storage_account_name` here **and** the matching literal in
-both `environments/*/main.tf` backend blocks — backend blocks cannot read
-variables.
+the backend blocks of [main.tf](main.tf) and both `environments/*/main.tf` —
+backend blocks cannot read variables.
 
-Applying this registers the `Microsoft.Storage` resource provider in the
-subscription, which is currently `NotRegistered`. The azurerm provider does that
-automatically on first use.
+`Microsoft.Storage` and `Microsoft.CognitiveServices` are already registered in
+this subscription. In a fresh one the azurerm provider registers what it needs
+on first use, which adds a few minutes to the first apply.
 
 ## Notes
 
-- State is local by default. To move it into the backend it just created,
-  uncomment the `backend "azurerm"` block in [main.tf](main.tf) and run
-  `terraform init -migrate-state`.
+- This stack stores its state in the storage account it creates, under the key
+  `bootstrap.terraform.tfstate`. That is circular, and deliberate: it keeps the
+  state off any single workstation, where losing it would mean re-importing
+  every backend resource by hand.
+- The circularity is contained by `prevent_destroy` on the storage account and
+  the container. `terraform destroy` fails with `Instance cannot be destroyed`
+  until someone removes those lifecycle blocks, which is the intended friction.
+- Bootstrapping a subscription that has no state storage account yet is the one
+  case needing local state: comment out the `backend "azurerm"` block, apply
+  once, uncomment it, then run `terraform init -migrate-state`.
 - The backends authenticate with Entra ID (`use_azuread_auth`). Subscription
   Owner does not grant blob data access on its own, which is why the role
   assignment exists. If `terraform init` in an environment fails with a 403 on
@@ -54,5 +61,6 @@ automatically on first use.
   `RequestDisallowedByAzure: The selected region is currently not accepting new
   customers`. Anything else this subscription creates in westeurope will hit the
   same wall — see https://aka.ms/locationineligible.
-- Deleting this stack orphans every other stack's state. Consider a
-  `CanNotDelete` lock on the storage account before real workloads land.
+- `prevent_destroy` guards against Terraform, not against Azure. A portal
+  deletion or an `az` command still removes the account and every stack's state
+  with it. Add a `CanNotDelete` management lock before real workloads land.

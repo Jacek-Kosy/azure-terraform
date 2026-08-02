@@ -8,20 +8,23 @@ terraform {
     }
   }
 
-  # This stack deliberately keeps local state: it creates the storage account
-  # that every other stack uses as its remote backend. After the first apply you
-  # may move this stack's own state into that account by uncommenting the block
-  # below and running `terraform init -migrate-state`.
+  # This stack stores its state in the storage account it creates, which is
+  # circular but keeps the state off any one workstation. The circularity is
+  # contained by prevent_destroy on the account and container below: tearing
+  # this stack down requires deliberately editing that lifecycle block first.
   #
-  # backend "azurerm" {
-  #   resource_group_name  = "rg-tfstate"
-  #   storage_account_name = "sttfstate964eeda7"
-  #   container_name       = "tfstate"
-  #   key                  = "bootstrap.terraform.tfstate"
-  #   subscription_id      = "964eeda7-d407-48de-a969-ba555d0afd1e"
-  #   tenant_id            = "060d8650-91b9-468e-bfb1-b03f1a30221d"
-  #   use_azuread_auth     = true
-  # }
+  # Recreating from nothing, in a subscription with no storage account yet:
+  # comment this block out, apply once against local state, uncomment it, then
+  # run `terraform init -migrate-state`.
+  backend "azurerm" {
+    resource_group_name  = "rg-tfstate"
+    storage_account_name = "sttfstate964eeda7"
+    container_name       = "tfstate"
+    key                  = "bootstrap.terraform.tfstate"
+    subscription_id      = "964eeda7-d407-48de-a969-ba555d0afd1e"
+    tenant_id            = "060d8650-91b9-468e-bfb1-b03f1a30221d"
+    use_azuread_auth     = true
+  }
 }
 
 provider "azurerm" {
@@ -71,6 +74,13 @@ resource "azurerm_storage_account" "state" {
   }
 
   tags = var.tags
+
+  # Every stack's state lives here, including this one's. Destroying the account
+  # would take the state with it and leave the whole catalog unmanageable, so
+  # teardown has to be an explicit decision made by editing this block.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # The backends authenticate with Entra ID (use_azuread_auth), which needs a
@@ -85,4 +95,8 @@ resource "azurerm_storage_container" "state" {
   name                  = var.state_container_name
   storage_account_id    = azurerm_storage_account.state.id
   container_access_type = "private"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
