@@ -20,11 +20,20 @@ selected.
 ## Structure
 - bootstrap/: remote state backend (`rg-tfstate`), applied once before anything else
 - modules/: reusable Terraform modules
-- environments/dev/: development environment entry point
+- environments/dev/: development environment entry point, including Azure OpenAI embeddings
 - environments/prod/: production environment entry point
+- data/: source corpora to embed
 - shared/: common conventions, policies, and helper configuration
 - scripts/: operational helpers
 - docs/: implementation notes
+
+## Regions
+
+`westeurope` is closed to new customers in this subscription and rejects new
+resources with `RequestDisallowedByAzure`. Both environments default to
+`northeurope`. The one exception is the `rg-tfstate` resource group, which
+predates this catalog and stays in `westeurope` — a resource group only holds
+metadata, so the storage account inside it sits in `northeurope` regardless.
 
 ## Getting started
 
@@ -51,3 +60,20 @@ terraform -chdir=environments/dev init
 ```bash
 terraform -chdir=environments/dev plan
 ```
+
+## Embedding the corpus
+
+The dev environment provisions an Azure OpenAI account with a
+`text-embedding-3-small` deployment. After applying dev, embed the 200-chunk
+Arduino corpus in [data/arduino-basics.jsonl](data/arduino-basics.jsonl):
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
+```
+
+```bash
+export AZURE_OPENAI_ENDPOINT="$(terraform -chdir=environments/dev output -raw openai_endpoint)" && .venv/bin/python scripts/embed_chunks.py
+```
+
+See [scripts/README.md](scripts/README.md) for options and authentication
+details.

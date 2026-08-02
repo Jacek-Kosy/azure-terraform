@@ -29,10 +29,38 @@ provider "azurerm" {
   tenant_id       = var.tenant_id
 }
 
+data "azurerm_client_config" "current" {}
+
 module "resource_group" {
   source = "../../modules/azure-resource-group"
 
   name     = var.resource_group_name
   location = var.location
   tags     = var.tags
+}
+
+module "openai" {
+  source = "../../modules/azure-openai"
+
+  name                = var.openai_account_name
+  resource_group_name = module.resource_group.resource_group_name
+  location            = var.openai_location
+  tags                = var.tags
+
+  deployments = {
+    "text-embedding-3-small" = {
+      model_name    = "text-embedding-3-small"
+      model_version = "1"
+      sku_name      = "GlobalStandard"
+      capacity      = var.embedding_capacity
+    }
+  }
+}
+
+# The account has local_auth_enabled = false, so a data-plane role is the only
+# way to call it. Owner on the subscription does not imply this.
+resource "azurerm_role_assignment" "openai_user" {
+  scope                = module.openai.id
+  role_definition_name = "Cognitive Services OpenAI User"
+  principal_id         = data.azurerm_client_config.current.object_id
 }
