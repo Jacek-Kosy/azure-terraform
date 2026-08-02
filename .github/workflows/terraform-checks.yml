@@ -63,8 +63,15 @@ jobs:
       # --recursive resolves .tflint.hcl per directory, so the shared config at
       # the repository root has to be passed as an absolute path or the azurerm
       # ruleset silently does not load.
+      # tflint --init pulls the ruleset from GitHub releases. Unauthenticated
+      # requests from Actions runners share heavily rate-limited IPs, so without
+      # a token this step fails intermittently with HTTP 403.
       - run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: tflint --recursive --config="${GITHUB_WORKSPACE}/.tflint.hcl" --format compact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   trivy:
     name: Security scan

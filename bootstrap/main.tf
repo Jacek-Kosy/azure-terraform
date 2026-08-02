@@ -32,6 +32,10 @@ provider "azurerm" {
 
   subscription_id = var.subscription_id
   tenant_id       = var.tenant_id
+
+  # The storage account has shared_access_key_enabled = false, so data-plane
+  # calls must carry an Entra ID token rather than an account key.
+  storage_use_azuread = true
 }
 
 data "azurerm_client_config" "current" {}
@@ -63,6 +67,11 @@ resource "azurerm_storage_account" "state" {
   account_replication_type        = var.state_replication_type
   min_tls_version                 = "TLS1_2"
   allow_nested_items_to_be_public = false
+
+  # Account keys bypass Entra ID entirely: anyone holding one has full access to
+  # every stack's state. Nothing here needs them, since all backends set
+  # use_azuread_auth, so the whole key-based path is removed rather than guarded.
+  shared_access_key_enabled = false
 
   # Versioning and soft delete let you recover a state file that was corrupted
   # or overwritten by a bad apply.
@@ -104,4 +113,18 @@ resource "azurerm_storage_container" "state" {
   lifecycle {
     prevent_destroy = true
   }
+}
+
+# prevent_destroy only binds Terraform. This lock is enforced by Azure itself, so
+# a portal click or an `az storage account delete` is refused too, and covers
+# child resources including the container.
+#
+# Note this also blocks listKeys, which Azure treats as a write operation. That is
+# harmless here because shared_access_key_enabled is false and every caller uses
+# Entra ID, but it would break tooling that expects an account key.
+resource "azurerm_management_lock" "state" {
+  name       = "state-backend-cannotdelete"
+  scope      = azurerm_storage_account.state.id
+  lock_level = "CanNotDelete"
+  notes      = "Holds Terraform state for every stack in this catalog."
 }
