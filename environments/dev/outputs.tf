@@ -22,3 +22,18 @@ output "embedding_deployment_name" {
   description = "Deployment name to pass as the model id when calling the embeddings API"
   value       = "text-embedding-3-small"
 }
+
+output "cosmos_endpoint" {
+  description = "Cosmos DB account endpoint. Export as COSMOS_ENDPOINT for the app."
+  value       = module.cosmosdb.endpoint
+}
+
+output "cosmos_account_name" {
+  description = "Cosmos DB account name"
+  value       = module.cosmosdb.name
+}
+
+output "cosmos_database_name" {
+  description = "Cosmos DB SQL database holding the vector containers"
+  value       = module.cosmosdb.database_name
+}

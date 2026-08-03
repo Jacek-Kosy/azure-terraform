@@ -31,9 +31,16 @@ selected.
 
 `westeurope` is closed to new customers in this subscription and rejects new
 resources with `RequestDisallowedByAzure`. Both environments default to
-`northeurope`. The one exception is the `rg-tfstate` resource group, which
-predates this catalog and stays in `westeurope` — a resource group only holds
-metadata, so the storage account inside it sits in `northeurope` regardless.
+`northeurope`.
+
+Two exceptions, each with its own variable so it can move independently:
+
+- `rg-tfstate` predates this catalog and stays in `westeurope`. A resource group
+  only holds metadata, so the storage account inside it sits in `northeurope`.
+- The Cosmos DB account is in `swedencentral`. `northeurope` refused account
+  creation with `ServiceUnavailable`: Cosmos capacity is regional and exhausts
+  independently of everything else, which had no effect on any other resource in
+  that region.
 
 ## Getting started
 

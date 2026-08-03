@@ -64,3 +64,18 @@ resource "azurerm_role_assignment" "openai_user" {
   role_definition_name = "Cognitive Services OpenAI User"
   principal_id         = data.azurerm_client_config.current.object_id
 }
+
+module "cosmosdb" {
+  source = "../../modules/azure-cosmosdb"
+
+  name                = var.cosmos_account_name
+  resource_group_name = module.resource_group.resource_group_name
+  location            = var.cosmos_location
+  database_name       = var.cosmos_database_name
+  database_throughput = var.cosmos_database_throughput
+  tags                = var.tags
+
+  # Grants the applying principal read/write on documents. Without it the portal
+  # Data Explorer cannot show anything either, since keys are disabled.
+  data_plane_principal_ids = [data.azurerm_client_config.current.object_id]
+}

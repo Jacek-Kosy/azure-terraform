@@ -40,6 +40,30 @@ variable "embedding_capacity" {
   default     = 50
 }
 
+variable "cosmos_account_name" {
+  description = "Cosmos DB account name. Must be globally unique: it becomes <name>.documents.azure.com."
+  type        = string
+  default     = "cosmos-dev-964eeda7"
+}
+
+variable "cosmos_location" {
+  description = "Region for the Cosmos DB account. Separate from var.location because Cosmos capacity is regional and exhausts independently: northeurope refused account creation with ServiceUnavailable while every other resource there was fine."
+  type        = string
+  default     = "swedencentral"
+}
+
+variable "cosmos_database_name" {
+  description = "Name of the Cosmos DB SQL database holding the vector containers"
+  type        = string
+  default     = "vectordb"
+}
+
+variable "cosmos_database_throughput" {
+  description = "Shared RU/s across the database's containers. 1000 is exactly what the free tier covers, so this costs nothing."
+  type        = number
+  default     = 1000
+}
+
 variable "tags" {
   description = "Tags applied to the development resource group"
   type        = map(string)
