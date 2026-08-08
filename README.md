@@ -102,7 +102,7 @@ private endpoint.
 ## Embedding the corpus
 
 The dev environment provisions an Azure OpenAI account with a
-`text-embedding-3-small` deployment. After applying dev, embed the 200-chunk
+`text-embedding-3-small` deployment. After applying dev, embed the 1010-chunk
 Arduino corpus in [data/arduino-basics.jsonl](data/arduino-basics.jsonl):
 
 ```bash
@@ -115,3 +115,12 @@ export AZURE_OPENAI_ENDPOINT="$(terraform -chdir=environments/dev output -raw op
 
 See [scripts/README.md](scripts/README.md) for options and authentication
 details.
+
+The corpus is sized deliberately: Cosmos DB falls back to a full scan below
+1000 vectors, so `quantizedFlat` and `diskANN` indexes only become meaningful
+above that. A second pass at 505 dimensions produces vectors a `flat` index can
+accept, since `flat` cannot take the model's native 1536:
+
+```bash
+.venv/bin/python scripts/embed_chunks.py --dimensions 505 --output data/arduino-basics-505.embeddings.jsonl
+```
