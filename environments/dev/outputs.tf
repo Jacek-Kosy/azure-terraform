@@ -37,3 +37,8 @@ output "cosmos_database_name" {
   description = "Cosmos DB SQL database holding the vector containers"
   value       = module.cosmosdb.database_name
 }
+
+output "cosmos_containers" {
+  description = "Vector containers with the index type and dimensions each was built with"
+  value       = module.cosmosdb.containers
+}

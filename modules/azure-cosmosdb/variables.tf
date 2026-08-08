@@ -30,9 +30,14 @@ variable "database_name" {
 }
 
 variable "database_throughput" {
-  description = "Shared RU/s for the database, in increments of 100 with a minimum of 400. The free tier covers the first 1000 RU/s. Set at creation only: changing it forces the database to be recreated."
+  description = "Shared RU/s across the database's containers. Null by default, and must stay null for vector containers: Cosmos refuses vector indexes under a shared throughput offer. Set at creation only, so changing it forces the database to be recreated."
   type        = number
-  default     = 1000
+  default     = null
+
+  validation {
+    condition     = var.database_throughput == null || length(var.containers) == 0
+    error_message = "Vector containers cannot coexist with shared database throughput. Leave database_throughput null and let each container provision its own."
+  }
 }
 
 variable "free_tier_enabled" {
@@ -63,6 +68,39 @@ variable "capabilities" {
   description = "Account capabilities. EnableNoSQLVectorSearch is required before any container may declare a vector embedding policy or vector index."
   type        = list(string)
   default     = ["EnableNoSQLVectorSearch"]
+}
+
+variable "containers" {
+  description = "Vector containers keyed by name. Each carries a vector embedding policy and one vector index, which is the only thing that should differ when comparing index types."
+  type = map(object({
+    dimensions               = number
+    index_type               = string
+    partition_key_path       = optional(string, "/topic")
+    vector_path              = optional(string, "/embedding")
+    distance_function        = optional(string, "cosine")
+    autoscale_max_throughput = optional(number, 1000)
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for c in var.containers : contains(["flat", "quantizedFlat", "diskANN"], c.index_type)])
+    error_message = "index_type must be one of flat, quantizedFlat, or diskANN (case sensitive)."
+  }
+
+  validation {
+    condition     = alltrue([for c in var.containers : c.index_type != "flat" || c.dimensions <= 505])
+    error_message = "A flat index accepts at most 505 dimensions; quantizedFlat and diskANN accept up to 4096."
+  }
+
+  validation {
+    condition     = alltrue([for c in var.containers : c.dimensions <= 4096])
+    error_message = "Cosmos DB vector indexes accept at most 4096 dimensions."
+  }
+
+  validation {
+    condition     = alltrue([for c in var.containers : contains(["cosine", "dotproduct", "euclidean"], c.distance_function)])
+    error_message = "distance_function must be cosine, dotproduct, or euclidean."
+  }
 }
 
 variable "data_plane_principal_ids" {

@@ -53,21 +53,22 @@ resource "azurerm_cosmosdb_account" "this" {
   }
 }
 
-# Throughput is shared across every container in this database. That suits
-# side-by-side index comparisons, where several containers hold the same data
-# under different index types and none needs dedicated capacity.
+# The database deliberately provisions no throughput of its own. Cosmos rejects
+# vector indexes on any container under a shared throughput offer with "The
+# Vector Indexing is not supported for shared throughput offer", so throughput
+# has to be dedicated per container instead.
 #
-# Throughput must be set at creation: changing it later requires destroying and
-# recreating the database.
+# Throughput can only be set at creation, so switching between shared and
+# dedicated later means destroying and recreating the database.
 resource "azurerm_cosmosdb_sql_database" "this" {
   name                = var.database_name
   resource_group_name = var.resource_group_name
   account_name        = azurerm_cosmosdb_account.this.name
   throughput          = var.database_throughput
 
-  # Guards the documents inside. Note this also means changing
-  # database_throughput, which Cosmos can only do by recreating the database,
-  # requires removing this block first.
+  # Guards the containers and their documents. Switching between shared and
+  # dedicated throughput is a recreate, so that change requires lifting this
+  # block deliberately first.
   lifecycle {
     prevent_destroy = true
   }
@@ -76,6 +77,69 @@ resource "azurerm_cosmosdb_sql_database" "this" {
 # With local authentication disabled there is no connection string, so even an
 # account owner cannot read data without one of these. 00000000-...-0002 is the
 # built-in Cosmos DB Data Contributor role.
+resource "azapi_resource" "container" {
+  for_each = var.containers
+
+  type      = "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2025-04-15"
+  name      = each.key
+  parent_id = azurerm_cosmosdb_sql_database.this.id
+
+  body = {
+    properties = {
+      # Autoscale rather than manual throughput. Manual bottoms out at 400 RU/s
+      # per container, so three containers would provision 1200 against a
+      # 1000 RU/s free-tier allowance. Autoscale idles at 10% of its maximum,
+      # so the same three sit at 300 RU/s and stay inside the free tier.
+      options = {
+        autoscaleSettings = {
+          maxThroughput = each.value.autoscale_max_throughput
+        }
+      }
+
+      resource = {
+        id = each.key
+
+        partitionKey = {
+          paths = [each.value.partition_key_path]
+          kind  = "Hash"
+        }
+
+        vectorEmbeddingPolicy = {
+          vectorEmbeddings = [{
+            path             = each.value.vector_path
+            dataType         = "float32"
+            distanceFunction = each.value.distance_function
+            dimensions       = each.value.dimensions
+          }]
+        }
+
+        indexingPolicy = {
+          indexingMode  = "consistent"
+          automatic     = true
+          includedPaths = [{ path = "/*" }]
+
+          # Excluding the vector path from the normal index is not optional:
+          # indexing hundreds of floats as ordinary scalar properties costs
+          # enormous RU and storage for an index nothing ever queries.
+          #
+          # Cosmos always adds the _etag exclusion itself, so declaring it here
+          # too keeps config matching reality instead of planning to strip it
+          # on every run.
+          excludedPaths = [
+            { path = "${each.value.vector_path}/*" },
+            { path = "/\"_etag\"/?" },
+          ]
+
+          vectorIndexes = [{
+            path = each.value.vector_path
+            type = each.value.index_type
+          }]
+        }
+      }
+    }
+  }
+}
+
 resource "azurerm_cosmosdb_sql_role_assignment" "data_contributor" {
   for_each = toset(var.data_plane_principal_ids)
 

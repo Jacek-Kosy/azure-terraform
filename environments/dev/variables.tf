@@ -59,9 +59,34 @@ variable "cosmos_database_name" {
 }
 
 variable "cosmos_database_throughput" {
-  description = "Shared RU/s across the database's containers. 1000 is exactly what the free tier covers, so this costs nothing."
+  description = "Shared RU/s across the database's containers. Must stay null: Cosmos refuses vector indexes under a shared throughput offer, so each container provisions its own autoscale capacity instead."
   type        = number
-  default     = 1000
+  default     = null
+}
+
+variable "cosmos_containers" {
+  description = "Vector containers to compare. All three sit at 505 dimensions so index type is the only variable: flat cannot exceed 505, and matching the others to it keeps the comparison controlled. Raise quantizedFlat and diskANN toward 4096 to see what the extra width costs them."
+  type = map(object({
+    dimensions         = number
+    index_type         = string
+    partition_key_path = optional(string, "/topic")
+    vector_path        = optional(string, "/embedding")
+    distance_function  = optional(string, "cosine")
+  }))
+  default = {
+    chunks_flat = {
+      dimensions = 505
+      index_type = "flat"
+    }
+    chunks_quantized = {
+      dimensions = 505
+      index_type = "quantizedFlat"
+    }
+    chunks_diskann = {
+      dimensions = 505
+      index_type = "diskANN"
+    }
+  }
 }
 
 variable "tags" {

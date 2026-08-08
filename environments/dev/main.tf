@@ -6,6 +6,11 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 5.0"
     }
+
+    azapi = {
+      source  = "Azure/azapi"
+      version = "~> 2.11"
+    }
   }
 
   # Backend blocks cannot use variables, so these values are literals. They must
@@ -25,6 +30,11 @@ terraform {
 provider "azurerm" {
   features {}
 
+  subscription_id = var.subscription_id
+  tenant_id       = var.tenant_id
+}
+
+provider "azapi" {
   subscription_id = var.subscription_id
   tenant_id       = var.tenant_id
 }
@@ -73,6 +83,7 @@ module "cosmosdb" {
   location            = var.cosmos_location
   database_name       = var.cosmos_database_name
   database_throughput = var.cosmos_database_throughput
+  containers          = var.cosmos_containers
   tags                = var.tags
 
   # Grants the applying principal read/write on documents. Without it the portal

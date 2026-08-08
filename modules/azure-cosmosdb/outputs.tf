@@ -18,6 +18,16 @@ output "database_name" {
   value       = azurerm_cosmosdb_sql_database.this.name
 }
 
+output "container_names" {
+  description = "Vector container names created on the database"
+  value       = sort(keys(azapi_resource.container))
+}
+
+output "containers" {
+  description = "Vector containers with the index type and dimensions each was built with"
+  value       = { for name, c in var.containers : name => { index_type = c.index_type, dimensions = c.dimensions } }
+}
+
 output "identity_principal_id" {
   description = "Principal ID of the account's system-assigned identity"
   value       = azurerm_cosmosdb_account.this.identity[0].principal_id
