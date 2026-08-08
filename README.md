@@ -20,12 +20,30 @@ selected.
 ## Structure
 - bootstrap/: remote state backend (`rg-tfstate`), applied once before anything else
 - modules/: reusable Terraform modules
-- environments/dev/: development environment entry point, including Azure OpenAI embeddings
+- environments/dev/: development environment entry point, including Azure OpenAI and Cosmos DB
 - environments/prod/: production environment entry point
 - data/: source corpora to embed
 - shared/: common conventions, policies, and helper configuration
 - scripts/: operational helpers
 - docs/: implementation notes
+
+## Vector index comparison
+
+The dev environment provisions three Cosmos DB containers holding identical
+data under different vector index types — `flat`, `quantizedFlat`, and
+`diskANN` — so index type is the only variable. All three sit at 505
+dimensions because `flat` cannot exceed that, and matching the others to it
+keeps the comparison controlled.
+
+```bash
+.venv/bin/python scripts/benchmark_indexes.py
+```
+
+See [scripts/README.md](scripts/README.md) for the load and benchmark workflow,
+and [modules/azure-cosmosdb/README.md](modules/azure-cosmosdb/README.md) for the
+constraints that shape it: vector indexes need dedicated throughput, `flat` caps
+at 505 dimensions, and below 1000 vectors every index type falls back to a full
+scan.
 
 ## Regions
 

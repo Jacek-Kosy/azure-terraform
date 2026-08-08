@@ -35,9 +35,9 @@ variable "openai_location" {
 }
 
 variable "embedding_capacity" {
-  description = "GlobalStandard capacity for the embedding deployment, in thousands of tokens per minute. Subscription quota for text-embedding-3-small in northeurope is 1000."
+  description = "GlobalStandard capacity for the embedding deployment, in thousands of tokens per minute. Subscription quota for text-embedding-3-small in northeurope is 1000. GlobalStandard bills per token consumed rather than per unit provisioned, so raising this buys rate limit headroom at no cost."
   type        = number
-  default     = 50
+  default     = 500
 }
 
 variable "cosmos_account_name" {
@@ -63,6 +63,22 @@ variable "cosmos_database_throughput" {
   type        = number
   default     = null
 }
+
+variable "cosmos_container_autoscale_max" {
+  description = "Autoscale ceiling per vector container, in RU/s. Autoscale idles at 10% of this, so three containers at 2000 sit at 600 RU/s, inside the 1000 RU/s free allowance. Raise it for bulk loading, which otherwise throttles with TooManyRequests."
+  type        = number
+  default     = 2000
+
+  validation {
+    condition     = var.cosmos_container_autoscale_max >= 1000 && var.cosmos_container_autoscale_max % 1000 == 0
+    error_message = "Autoscale maximum must be at least 1000 RU/s and a multiple of 1000."
+  }
+}
+
+# The ceiling ratchets: Cosmos will not accept a maximum below 10% of the highest
+# value ever provisioned on a container. Raising these to 20000 for a bulk load
+# permanently raised their floor to 2000, which is why the default is not 1000.
+# Raise it sparingly, and by the smallest amount that clears the throttling.
 
 variable "cosmos_containers" {
   description = "Vector containers to compare. All three sit at 505 dimensions so index type is the only variable: flat cannot exceed 505, and matching the others to it keeps the comparison controlled. Raise quantizedFlat and diskANN toward 4096 to see what the extra width costs them."

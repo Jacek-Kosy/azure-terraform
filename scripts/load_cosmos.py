@@ -20,6 +20,8 @@ import argparse
 import json
 import os
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 try:
@@ -36,6 +38,14 @@ SCOPE = "https://cognitiveservices.azure.com/.default"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=Path("data/arduino-basics-505.embeddings.jsonl"))
+    parser.add_argument("--offset", type=int, default=0, help="skip this many records")
+    parser.add_argument("--limit", type=int, help="load at most this many records")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=32,
+        help="concurrent writers; each upsert is one request, so this dominates load time",
+    )
     parser.add_argument("--endpoint", default=os.environ.get("COSMOS_ENDPOINT"))
     parser.add_argument("--database", default="vectordb")
     parser.add_argument("--container", required=True)
@@ -56,36 +66,71 @@ def get_container(args, credential):
     return client.get_database_client(args.database).get_container_client(args.container)
 
 
-def load(args, container, credential) -> int:
-    if not args.input.exists():
-        sys.exit(f"{args.input}: not found. Run scripts/embed_chunks.py first.")
-
-    written = 0
+def read_documents(args):
     with args.input.open(encoding="utf-8") as handle:
-        for line in handle:
+        for index, line in enumerate(handle):
             line = line.strip()
             if not line:
                 continue
+            if index < args.offset:
+                continue
+            if args.limit is not None and index >= args.offset + args.limit:
+                return
             record = json.loads(line)
-            # The partition key must be present as a real property, not just
-            # supplied at call time, or Cosmos rejects the document.
-            document = {
+            # The partition key must exist as a real property on the document,
+            # not merely be supplied at call time, or Cosmos rejects the write.
+            yield {
                 "id": record["id"],
                 "topic": record["topic"],
                 "title": record["title"],
                 "text": record["text"],
                 "embedding": record["embedding"],
+                # Carried through so a query can exclude generated filler, which
+                # is combinatorial nonsense and must never be served as an
+                # answer. Without this the only signal is the id prefix.
+                "synthetic": bool(record.get("synthetic", False)),
             }
-            try:
-                container.upsert_item(document)
-            except exceptions.CosmosHttpResponseError as exc:
-                sys.exit(f"{record['id']}: {exc.message}")
-            written += 1
-            if written % 200 == 0:
-                print(f"  {written} written", file=sys.stderr)
 
-    print(f"loaded {written} documents into {args.container}", file=sys.stderr)
-    return written
+
+def load(args, container, credential) -> int:
+    if not args.input.exists():
+        sys.exit(f"{args.input}: not found. Run scripts/embed_chunks.py first.")
+
+    documents = list(read_documents(args))
+    if not documents:
+        sys.exit("nothing to load: check --offset and --limit against the input size")
+
+    written = 0
+    failures: list[str] = []
+
+    def upsert(document):
+        try:
+            container.upsert_item(document)
+            return None
+        except exceptions.CosmosHttpResponseError as exc:
+            return f"{document['id']}: {exc.message}"
+
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        for error in pool.map(upsert, documents):
+            written += 1
+            if error:
+                failures.append(error)
+            if written % 5000 == 0:
+                rate = written / (time.monotonic() - started)
+                print(f"  {written:,} written ({rate:.0f}/s)", file=sys.stderr)
+
+    elapsed = time.monotonic() - started
+    if failures:
+        print(f"{len(failures)} failures, first: {failures[0]}", file=sys.stderr)
+        return 1
+
+    print(
+        f"loaded {written:,} documents into {args.container} "
+        f"in {elapsed:.0f}s ({written / elapsed:.0f}/s)",
+        file=sys.stderr,
+    )
+    return 0
 
 
 def query(args, container) -> int:
@@ -143,8 +188,7 @@ def main() -> int:
 
     if args.query:
         return query(args, container)
-    load(args, container, credential)
-    return 0
+    return load(args, container, credential)
 
 
 if __name__ == "__main__":

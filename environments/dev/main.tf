@@ -83,8 +83,11 @@ module "cosmosdb" {
   location            = var.cosmos_location
   database_name       = var.cosmos_database_name
   database_throughput = var.cosmos_database_throughput
-  containers          = var.cosmos_containers
-  tags                = var.tags
+  containers = {
+    for name, container in var.cosmos_containers :
+    name => merge(container, { autoscale_max_throughput = var.cosmos_container_autoscale_max })
+  }
+  tags = var.tags
 
   # Grants the applying principal read/write on documents. Without it the portal
   # Data Explorer cannot show anything either, since keys are disabled.

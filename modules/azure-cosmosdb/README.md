@@ -37,7 +37,15 @@ Set per container, not here. The relevant limits:
 | `quantizedFlat` | 4096 | Compresses vectors, then exact search over the compressed form |
 | `diskANN` | 4096 | Graph-based approximate search, built for scale |
 
-Two constraints decide whether a comparison between them is meaningful:
+Vector indexes require **dedicated per-container throughput**. Cosmos rejects
+them outright under a shared throughput offer with `The Vector Indexing is not
+supported for shared throughput offer`, which is why `database_throughput` is
+null and each container provisions autoscale capacity of its own. Manual
+throughput bottoms out at 400 RU/s per container, so three would need 1200
+against a 1000 RU/s free allowance; autoscale idles at 10% of its ceiling,
+putting the same three at 300.
+
+Two further constraints decide whether a comparison between them is meaningful:
 
 - `text-embedding-3-small` produces 1536 dimensions, which **exceeds `flat`'s
   limit of 505**. Comparing against `flat` requires re-embedding at 505 or
