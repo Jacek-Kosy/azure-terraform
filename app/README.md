@@ -9,9 +9,41 @@ Container Apps.
 - **Compare** runs the same query and the same embedding against all three
   indexes over the whole corpus, reporting request charge, latency, and recall
   measured against `flat`, which is exhaustive and therefore exact.
+- **Topic filter** narrows either mode to one topic, combining `VectorDistance`
+  with a `WHERE` clause.
 
-There is no chat model: the subscription has zero chat quota in every region, so
-the app returns ranked source passages rather than a generated answer.
+## The topic filter
+
+`/topic` is the containers' partition key, so a topic filter does more than
+drop rows. Passing `partition_key=` to `query_items` routes the query to a
+single physical partition instead of fanning out across all of them and merging
+— the same SQL without it returns identical rows for more RU.
+
+The filter is also the one control that changes *which index wins*, so the
+comparison is worth running both ways. Measured numbers and the reasoning are
+in [../docs/filtered-vector-search.md](../docs/filtered-vector-search.md).
+
+No indexing policy change was needed for any of this: `includedPaths: ["/*"]`
+already indexes `topic`, and filtered vector search needs no composite index.
+
+## No generated answers
+
+The app returns ranked source passages, not a generated answer. The only model
+deployment is `text-embedding-3-small`.
+
+This was once forced: the subscription had no chat quota in any region. **That is
+no longer true.** Checked 2026-08-09 against the existing northeurope account:
+
+| | |
+| --- | --- |
+| `gpt-5.4`, `gpt-5.4-mini` | `GlobalStandard`, deployable on this account |
+| Quota | 1,000k TPM, none of it used |
+| RBAC | none needed — `Cognitive Services OpenAI User` already covers chat completions |
+
+So adding generation is a `deployments` entry in
+[../modules/azure-openai](../modules/azure-openai/) and an app endpoint reusing
+`search()` and `embed()`, not new infrastructure. Re-check before relying on it;
+quota moves.
 
 ## Authentication
 
@@ -33,7 +65,7 @@ az acr login --name "$(terraform -chdir=../environments/dev output -raw registry
 ```
 
 ```bash
-docker buildx build --platform linux/amd64 -t acrdevvectordb964eeda7.azurecr.io/vectorsearch:v2 --push .
+docker buildx build --platform linux/amd64 -t acrdevvectordb964eeda7.azurecr.io/vectorsearch:v3 --push .
 ```
 
 **`--platform linux/amd64` is not optional.** Azure Container Apps runs x86-64
@@ -42,7 +74,7 @@ then crash-loops with an exec format error, which is a slow way to find out.
 Verify before deploying:
 
 ```bash
-docker manifest inspect acrdevvectordb964eeda7.azurecr.io/vectorsearch:v2
+docker manifest inspect acrdevvectordb964eeda7.azurecr.io/vectorsearch:v3
 ```
 
 Then bump `container_image` in `environments/dev/variables.tf` to the new tag and

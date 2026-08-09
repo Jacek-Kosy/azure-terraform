@@ -12,6 +12,14 @@ with corpus size.
 
 Recall is measured against flat, which is exhaustive and therefore exact: the
 fraction of flat's top-k that an approximate index also returned.
+
+--topic narrows every query to one topic. Since /topic is the partition key
+that is a single-partition query, not just a WHERE clause, and it shrinks the
+scoped set by roughly 12x. Worth running both ways: Microsoft's guidance puts
+quantizedFlat ahead below ~50k scoped vectors and diskANN ahead above, so the
+filter can move the two across that line.
+
+    python3 scripts/benchmark_indexes.py --topic sensors
 """
 
 from __future__ import annotations
@@ -60,6 +68,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top", type=int, default=10)
     parser.add_argument("--repeats", type=int, default=3, help="runs per query, best taken")
     parser.add_argument("--dimensions", type=int, default=505)
+    parser.add_argument(
+        "--topic",
+        help="restrict every query to one topic. /topic is the partition key, so this "
+        "also makes each query single-partition",
+    )
     return parser.parse_args()
 
 
@@ -69,16 +82,22 @@ def embed(openai, deployment, texts, dimensions):
     ).data]
 
 
-def run_query(container, vector, top):
+def run_query(container, vector, top, topic=None):
+    where = "WHERE c.topic = @topic " if topic else ""
     sql = (
         "SELECT TOP @top c.id, VectorDistance(c.embedding, @vector) AS score "
-        "FROM c ORDER BY VectorDistance(c.embedding, @vector)"
+        f"FROM c {where}ORDER BY VectorDistance(c.embedding, @vector)"
     )
     params = [{"name": "@vector", "value": vector}, {"name": "@top", "value": top}]
+    if topic:
+        params.append({"name": "@topic", "value": topic})
+
+    # Naming the partition key is the point of the filter: it routes to one
+    # physical partition instead of fanning out and merging.
+    routing = {"partition_key": topic} if topic else {"enable_cross_partition_query": True}
+
     started = time.monotonic()
-    rows = list(container.query_items(
-        query=sql, parameters=params, enable_cross_partition_query=True
-    ))
+    rows = list(container.query_items(query=sql, parameters=params, **routing))
     elapsed_ms = (time.monotonic() - started) * 1000
     charge = float(container.client_connection.last_response_headers.get("x-ms-request-charge", 0))
     return [r["id"] for r in rows], charge, elapsed_ms
@@ -102,19 +121,24 @@ def main() -> int:
     baseline_name = args.containers[0]
     counts = {}
     for name, container in containers.items():
+        where = "WHERE c.topic = @topic" if args.topic else ""
+        params = [{"name": "@topic", "value": args.topic}] if args.topic else None
         rows = list(container.query_items(
-            query="SELECT VALUE COUNT(1) FROM c", enable_cross_partition_query=True
+            query=f"SELECT VALUE COUNT(1) FROM c {where}",
+            parameters=params,
+            enable_cross_partition_query=True,
         ))
         counts[name] = rows[0] if rows else 0
 
-    print(f"\ndocuments: " + ", ".join(f"{n}={c:,}" for n, c in counts.items()))
+    scope = f" scoped to topic={args.topic}, single-partition" if args.topic else ""
+    print(f"\ndocuments{scope}: " + ", ".join(f"{n}={c:,}" for n, c in counts.items()))
     print(f"top-{args.top}, {len(QUERIES)} queries, best of {args.repeats}\n")
     print(f"{'container':<20}{'RU (median)':>14}{'ms (median)':>14}{'recall vs ' + baseline_name.split('_')[-1]:>22}")
     print("-" * 70)
 
     baseline_results = {}
     for i, vector in enumerate(vectors):
-        ids, _, _ = run_query(containers[baseline_name], vector, args.top)
+        ids, _, _ = run_query(containers[baseline_name], vector, args.top, args.topic)
         baseline_results[i] = set(ids)
 
     for name, container in containers.items():
@@ -122,7 +146,7 @@ def main() -> int:
         for i, vector in enumerate(vectors):
             best_ms, best_ru, ids = None, None, None
             for _ in range(args.repeats):
-                got, ru, ms = run_query(container, vector, args.top)
+                got, ru, ms = run_query(container, vector, args.top, args.topic)
                 if best_ms is None or ms < best_ms:
                     best_ms, best_ru, ids = ms, ru, got
             charges.append(best_ru)

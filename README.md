@@ -31,8 +31,8 @@ selected.
 ## The app
 
 [app/](app/) is a FastAPI front end on Azure Container Apps, scaling to zero when
-idle. It searches the hand-written corpus, and compares all three vector indexes
-on the same query. Its URL:
+idle. It searches the hand-written corpus, compares all three vector indexes on
+the same query, and can narrow either to a single topic. Its URL:
 
 ```bash
 terraform -chdir=environments/dev output -raw app_url
@@ -60,6 +60,20 @@ and [modules/azure-cosmosdb/README.md](modules/azure-cosmosdb/README.md) for the
 constraints that shape it: vector indexes need dedicated throughput, `flat` caps
 at 505 dimensions, and below 1000 vectors every index type falls back to a full
 scan.
+
+## Filtered vector search
+
+Both the app and the benchmark can narrow a query to one topic, combining
+`VectorDistance` with a `WHERE` clause. Since `/topic` is the partition key,
+that also makes the query single-partition.
+
+```bash
+.venv/bin/python scripts/benchmark_indexes.py --topic sensors
+```
+
+This is not only a cost saving: the filter changes which index is cheapest.
+[docs/filtered-vector-search.md](docs/filtered-vector-search.md) has the
+measurements.
 
 ## Regions
 
