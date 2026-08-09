@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arduino vector search</title>
+  <style>
+    :root { color-scheme: light dark; --fg: #16181d; --muted: #5c6370; --bg: #fbfbfc; --card: #fff; --line: #e3e5ea; --accent: #2f5d9e; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg: #e6e8ec; --muted: #9aa2b1; --bg: #14161a; --card: #1c1f25; --line: #2c313a; --accent: #7aa7e0; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 2rem 1rem 4rem; background: var(--bg); color: var(--fg);
+           font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 60rem; margin: 0 auto; }
+    h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+    .sub { color: var(--muted); margin: 0 0 1.75rem; font-size: .9rem; }
+    form { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    input[type=text] { flex: 1 1 22rem; padding: .65rem .8rem; font-size: 1rem; color: var(--fg);
+                       background: var(--card); border: 1px solid var(--line); border-radius: 6px; }
+    button { padding: .65rem 1.1rem; font-size: .95rem; border-radius: 6px; cursor: pointer;
+             border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+    button.secondary { background: transparent; color: var(--accent); }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+            padding: 1rem 1.15rem; margin-bottom: .75rem; }
+    .meta { color: var(--muted); font-size: .82rem; margin-bottom: 1rem; }
+    .topic { display: inline-block; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
+             color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: .1rem .55rem; }
+    .title { font-weight: 600; margin: .4rem 0 .35rem; }
+    .score { float: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: .82rem; }
+    .err { border-left: 3px solid #c0392b; padding-left: .9rem; color: #c0392b; }
+    .scroll { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+    th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .win { color: var(--accent); font-weight: 600; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Arduino vector search</h1>
+  <p class="sub">Semantic search over 1,010 hand-written Arduino chunks, indexed in Azure Cosmos DB.</p>
+
+  <form method="post" action="/search">
+    <input type="text" name="query" value="{{ query }}" placeholder="e.g. my board keeps resetting when the motor starts" required autofocus>
+    <button type="submit">Search</button>
+    <button type="submit" formaction="/compare" class="secondary">Compare indexes</button>
+  </form>
+
+  {% if error %}
+    <div class="card err">{{ error }}</div>
+  {% endif %}
+
+  {% if result %}
+    <p class="meta">
+      {{ result.hits|length }} results from <strong>{{ result.index_type }}</strong>
+      &middot; {{ "%.2f"|format(result.request_units) }} RU
+      &middot; {{ "%.0f"|format(result.latency_ms) }} ms
+      &middot; hand-written corpus only
+    </p>
+    {% for hit in result.hits %}
+      <div class="card">
+        <span class="score">{{ "%.3f"|format(hit.score) }}</span>
+        <span class="topic">{{ hit.topic }}</span>
+        <div class="title">{{ hit.title }}</div>
+        <div>{{ hit.text }}</div>
+      </div>
+    {% endfor %}
+    {% if not result.hits %}<div class="card">No matches.</div>{% endif %}
+  {% endif %}
+
+  {% if comparison %}
+    <p class="meta">
+      Same query and same embedding against every index, over the whole corpus including
+      generated filler. Recall is measured against <strong>flat</strong>, which is exhaustive
+      and therefore exact.
+    </p>
+    <div class="card scroll">
+      <table>
+        <thead>
+          <tr><th>Index</th><th>Container</th><th class="num">RU</th><th class="num">Latency</th><th class="num">Recall vs flat</th></tr>
+        </thead>
+        <tbody>
+        {% set cheapest = comparison|map(attribute='result.request_units')|min %}
+        {% for row in comparison %}
+          <tr>
+            <td class="{{ 'win' if row.result.request_units == cheapest }}">{{ row.result.index_type }}</td>
+            <td>{{ row.result.container }}</td>
+            <td class="num {{ 'win' if row.result.request_units == cheapest }}">{{ "%.2f"|format(row.result.request_units) }}</td>
+            <td class="num">{{ "%.0f"|format(row.result.latency_ms) }} ms</td>
+            <td class="num">{% if row.recall is not none %}{{ "%.0f"|format(row.recall) }}%{% else %}&mdash;{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</main>
+</body>
+</html>

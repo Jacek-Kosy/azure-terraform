@@ -1,0 +1,86 @@
+name: Terraform checks
+
+# Checks only — this workflow never runs plan or apply and holds no Azure
+# credentials. Deployment stays a deliberate local action.
+# Push covers every branch, and GitHub surfaces those commit statuses on any
+# pull request built from them, so a separate pull_request trigger would only
+# duplicate runs. Add one if this repository ever takes contributions from forks.
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: "1.15.8"
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - run: terraform fmt -check -recursive -diff
+
+  validate:
+    name: Validate ${{ matrix.stack }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack:
+          - bootstrap
+          - environments/dev
+          - environments/prod
+          - modules/azure-resource-group
+          - modules/azure-openai
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      # -backend=false is what keeps this credential-free: the stacks store
+      # state in Azure, and initialising the real backend would need a login.
+      - run: terraform -chdir=${{ matrix.stack }} init -backend=false -input=false
+      - run: terraform -chdir=${{ matrix.stack }} validate
+
+  tflint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v0.64.0
+      # --recursive resolves .tflint.hcl per directory, so the shared config at
+      # the repository root has to be passed as an absolute path or the azurerm
+      # ruleset silently does not load.
+      # tflint --init pulls the ruleset from GitHub releases. Unauthenticated
+      # requests from Actions runners share heavily rate-limited IPs, so without
+      # a token this step fails intermittently with HTTP 403.
+      - run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: tflint --recursive --config="${GITHUB_WORKSPACE}/.tflint.hcl" --format compact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trivy:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Run the pinned image directly rather than via the action: this is the
+      # exact command verified locally, and a floating tag would let a new
+      # ruleset release fail CI on a commit that changed nothing.
+      - run: |
+          docker run --rm -v "$PWD":/data aquasec/trivy:0.72.0 \
+            config /data --severity HIGH,CRITICAL --exit-code 1

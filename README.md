@@ -2,20 +2,159 @@
 
 This workspace provides a starter catalog structure for Terraform-based Azure deployments.
 
+## Target subscription
+
+Every stack is pinned to a single subscription and tenant:
+
+| | |
+| --- | --- |
+| Subscription | `az-subscription-jacek` |
+| Subscription ID | `964eeda7-d407-48de-a969-ba555d0afd1e` |
+| Tenant ID | `060d8650-91b9-468e-bfb1-b03f1a30221d` |
+
+The IDs are defaults on the `subscription_id` / `tenant_id` variables in each
+stack and are set explicitly on every `provider "azurerm"` block, so an apply
+cannot silently follow whatever subscription the Azure CLI happens to have
+selected.
+
 ## Structure
+- app/: containerized search front end, deployed to Azure Container Apps
+- bootstrap/: remote state backend (`rg-tfstate`), applied once before anything else
 - modules/: reusable Terraform modules
-- environments/dev/: development environment entry point
+- environments/dev/: development environment entry point, including Azure OpenAI and Cosmos DB
 - environments/prod/: production environment entry point
+- data/: source corpora to embed
 - shared/: common conventions, policies, and helper configuration
 - scripts/: operational helpers
 - docs/: implementation notes
 
+## The app
+
+[app/](app/) is a FastAPI front end on Azure Container Apps, scaling to zero when
+idle. It searches the hand-written corpus, and compares all three vector indexes
+on the same query. Its URL:
+
+```bash
+terraform -chdir=environments/dev output -raw app_url
+```
+
+It holds no credentials: a user-assigned managed identity carries
+`Cognitive Services OpenAI User` and Cosmos **Data Reader**. See
+[app/README.md](app/README.md) for building and deploying, including the
+`--platform linux/amd64` requirement.
+
+## Vector index comparison
+
+The dev environment provisions three Cosmos DB containers holding identical
+data under different vector index types — `flat`, `quantizedFlat`, and
+`diskANN` — so index type is the only variable. All three sit at 505
+dimensions because `flat` cannot exceed that, and matching the others to it
+keeps the comparison controlled.
+
+```bash
+.venv/bin/python scripts/benchmark_indexes.py
+```
+
+See [scripts/README.md](scripts/README.md) for the load and benchmark workflow,
+and [modules/azure-cosmosdb/README.md](modules/azure-cosmosdb/README.md) for the
+constraints that shape it: vector indexes need dedicated throughput, `flat` caps
+at 505 dimensions, and below 1000 vectors every index type falls back to a full
+scan.
+
+## Regions
+
+`westeurope` is closed to new customers in this subscription and rejects new
+resources with `RequestDisallowedByAzure`. Both environments default to
+`northeurope`.
+
+Two exceptions, each with its own variable so it can move independently:
+
+- `rg-tfstate` predates this catalog and stays in `westeurope`. A resource group
+  only holds metadata, so the storage account inside it sits in `northeurope`.
+- The Cosmos DB account is in `swedencentral`. `northeurope` refused account
+  creation with `ServiceUnavailable`: Cosmos capacity is regional and exhausts
+  independently of everything else, which had no effect on any other resource in
+  that region.
+
 ## Getting started
-1. Review the module and environment examples.
-2. Copy the example variable files and adjust values.
-3. Initialize Terraform for an environment:
+
+1. Sign in and select the subscription:
+
+```bash
+az login --tenant 060d8650-91b9-468e-bfb1-b03f1a30221d && az account set --subscription 964eeda7-d407-48de-a969-ba555d0afd1e
+```
+
+2. Create the state backend. This is required before any environment can
+   `init`, since they store state in the storage account it creates. See
+   [bootstrap/README.md](bootstrap/README.md).
+
+```bash
+terraform -chdir=bootstrap init && terraform -chdir=bootstrap apply
+```
+
+3. Initialize an environment against the remote backend:
 
 ```bash
 terraform -chdir=environments/dev init
+```
+
+```bash
 terraform -chdir=environments/dev plan
+```
+
+## Checks
+
+[.github/workflows/terraform-checks.yml](.github/workflows/terraform-checks.yml)
+runs on every push: `terraform fmt`, `validate` across all five stacks, tflint
+with the azurerm ruleset, and a trivy config scan failing on HIGH or CRITICAL.
+
+**It never runs plan or apply and holds no Azure credentials.** Deployment stays
+a deliberate local action. `validate` works credential-free because it runs
+`init -backend=false`; wiring CI up to Azure would mean OIDC federated
+credentials, which is a separate decision.
+
+To reproduce the same checks locally:
+
+```bash
+terraform fmt -check -recursive -diff
+```
+
+```bash
+docker run --rm -v "$PWD":/data -w /data --entrypoint sh ghcr.io/terraform-linters/tflint:v0.64.0 -c 'tflint --init >/dev/null && tflint --recursive --config=/data/.tflint.hcl'
+```
+
+```bash
+docker run --rm -v "$PWD":/data aquasec/trivy:0.72.0 config /data --severity HIGH,CRITICAL --exit-code 1
+```
+
+One trivy finding is suppressed in place, with its reasoning, at the storage
+account in [bootstrap/main.tf](bootstrap/main.tf): `AVD-AZU-0012` wants a
+network `default_action` of `Deny`, which would lock the state backend to a
+single IP address and break `terraform init` elsewhere. The real fix is a
+private endpoint.
+
+## Embedding the corpus
+
+The dev environment provisions an Azure OpenAI account with a
+`text-embedding-3-small` deployment. After applying dev, embed the 1010-chunk
+Arduino corpus in [data/arduino-basics.jsonl](data/arduino-basics.jsonl):
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
+```
+
+```bash
+export AZURE_OPENAI_ENDPOINT="$(terraform -chdir=environments/dev output -raw openai_endpoint)" && .venv/bin/python scripts/embed_chunks.py
+```
+
+See [scripts/README.md](scripts/README.md) for options and authentication
+details.
+
+The corpus is sized deliberately: Cosmos DB falls back to a full scan below
+1000 vectors, so `quantizedFlat` and `diskANN` indexes only become meaningful
+above that. A second pass at 505 dimensions produces vectors a `flat` index can
+accept, since `flat` cannot take the model's native 1536:
+
+```bash
+.venv/bin/python scripts/embed_chunks.py --dimensions 505 --output data/arduino-basics-505.embeddings.jsonl
 ```
