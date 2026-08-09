@@ -121,6 +121,27 @@ of them.** One write costs about eight searches. This is why bulk loading
 throttles against the autoscale ceiling while querying never does, and it is
 the figure to reach for when sizing throughput for an ingest.
 
+### Patching one property costs the same as rewriting the document
+
+The obvious way to correct a single scalar on a stored document is
+`patch_item`, which sends only the changed property instead of the whole
+record. On a vector-indexed container it saves nothing:
+
+| operation | RU |
+| --- | ---: |
+| `upsert_item` — full document, vector included | 93.2 |
+| `patch_item` — one boolean, vector untouched | 94.25 |
+
+The vector is re-indexed on any write to the document, and that dominates the
+charge; the bytes on the wire barely matter. So on a container like this one,
+**there is no cheap edit** — plan corrections as if they were reloads.
+
+This is what makes the missing `synthetic` flag not worth fixing: 101,027
+affected documents × ~94 RU is roughly 9.5M RU to populate a field the `ard-`
+against `syn-` id prefix already encodes for nothing. See
+[../scripts/README.md](../scripts/README.md) for the convention that replaces
+it.
+
 ## A Cosmos limitation worth knowing
 
 Populating the topic dropdown wanted a count per topic. The obvious query fails:

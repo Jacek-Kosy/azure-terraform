@@ -100,6 +100,34 @@ throttles and querying does not.
 `--topic` on a query names the partition key rather than merely filtering on
 it, so Cosmos serves the query from one partition instead of fanning out.
 
+### Telling the hand-written corpus from the filler
+
+Two signals, and only one of them is trustworthy.
+
+| Test | Reliable? |
+| --- | --- |
+| `c.synthetic = false` | **Yes** — all 1,010 hand-written chunks carry it |
+| `STARTSWITH(c.id, 'ard-')` / `'syn-'` | **Yes** — ids have always been prefixed |
+| `c.synthetic = true` | **No** — misses most of the filler |
+
+Most of the loaded filler predates the `synthetic` field and carries no such
+property, so it matches neither `= true` nor `!= true`. As of 2026-08-09:
+
+| container | `= false` | `= true` | field absent |
+| --- | ---: | ---: | ---: |
+| `chunks_flat` | 1,010 | 0 | 50,000 |
+| `chunks_quantized` | 1,010 | 0 | 50,000 |
+| `chunks_diskann` | 1,010 | 48,974 | 1,026 |
+
+This is deliberately not backfilled. Any write to one of these documents
+re-indexes its 505-float vector, so a one-property patch costs 94 RU — the same
+as rewriting the document whole — putting the correction at roughly 9.5M RU to
+fix a field the id prefix already encodes for free.
+
+**So query for `= false`, never for `= true`.** Everything in this repo does,
+and it fails closed: an unflagged document is excluded from search results
+rather than served as an answer.
+
 Bulk loading throttles with `TooManyRequests` against the default 1000 RU/s
 autoscale ceiling. Raise it for the load and lower it afterwards:
 

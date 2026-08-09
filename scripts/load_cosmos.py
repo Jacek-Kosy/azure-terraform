@@ -87,7 +87,13 @@ def read_documents(args):
                 "embedding": record["embedding"],
                 # Carried through so a query can exclude generated filler, which
                 # is combinatorial nonsense and must never be served as an
-                # answer. Without this the only signal is the id prefix.
+                # answer.
+                #
+                # Written on every document since this line existed, but most of
+                # the loaded filler predates it and has no such property. Query
+                # for `synthetic = false` to get the hand-written corpus; do not
+                # query for `synthetic = true` expecting all the filler. The
+                # id prefix (ard- against syn-) is the reliable discriminator.
                 "synthetic": bool(record.get("synthetic", False)),
             }
 

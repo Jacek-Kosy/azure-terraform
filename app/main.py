@@ -132,6 +132,9 @@ def _count(topic: str | None, real_only: bool) -> int:
     distinct selection. There are 31 topics and two modes, so the cache holds
     every combination a user can reach.
     """
+    # Matches search()'s predicate exactly, including testing for false rather
+    # than negating true -- see the note there. If the two ever diverge this
+    # reports a scope the search did not actually use.
     where = "WHERE c.synthetic = false" if real_only else ""
     routing = {"partition_key": topic} if topic else {"enable_cross_partition_query": True}
     rows = list(_default_container().query_items(f"SELECT VALUE COUNT(1) FROM c {where}", **routing))
@@ -167,6 +170,13 @@ def search(
 
     # Generated filler is combinatorial nonsense and must never be shown as an
     # answer, so ordinary searches restrict to the hand-written corpus.
+    #
+    # Test for false rather than negating true. Most of the filler predates the
+    # flag and carries no `synthetic` property at all, and in Cosmos an
+    # undefined property matches neither `= true` nor `!= true` predictably.
+    # `= false` selects exactly the 1,010 hand-written chunks and fails closed:
+    # anything unflagged is excluded, which is the safe direction. See
+    # scripts/README.md for the state of the data.
     if real_only:
         conditions.append("c.synthetic = false")
     if topic:
