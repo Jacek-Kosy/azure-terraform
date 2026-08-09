@@ -1,0 +1,10 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+jinja2>=3.1
+# Required by FastAPI's Form(...) handling. FastAPI does not depend on it, and
+# without it the app imports fine locally and then dies at startup in the
+# container with "Form data requires python-multipart to be installed".
+python-multipart>=0.0.9
+openai>=1.40
+azure-identity>=1.17
+azure-cosmos>=4.9

@@ -149,3 +149,16 @@ resource "azurerm_cosmosdb_sql_role_assignment" "data_contributor" {
   principal_id        = each.value
   scope               = azurerm_cosmosdb_account.this.id
 }
+
+# 00000000-...-0001 is the built-in Data Reader role. Callers that only query,
+# such as a search front end, get this instead of Contributor so a compromised
+# workload cannot rewrite the corpus.
+resource "azurerm_cosmosdb_sql_role_assignment" "data_reader" {
+  for_each = var.data_plane_reader_principal_ids
+
+  resource_group_name = var.resource_group_name
+  account_name        = azurerm_cosmosdb_account.this.name
+  role_definition_id  = "${azurerm_cosmosdb_account.this.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000001"
+  principal_id        = each.value
+  scope               = azurerm_cosmosdb_account.this.id
+}

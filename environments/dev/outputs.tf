@@ -42,3 +42,18 @@ output "cosmos_containers" {
   description = "Vector containers with the index type and dimensions each was built with"
   value       = module.cosmosdb.containers
 }
+
+output "app_url" {
+  description = "Public URL of the search app"
+  value       = module.container_app.url
+}
+
+output "registry_name" {
+  description = "Container registry name, for `az acr login`"
+  value       = module.container_app.registry_name
+}
+
+output "registry_login_server" {
+  description = "Registry hostname, for tagging images before pushing"
+  value       = module.container_app.registry_login_server
+}

@@ -105,6 +105,41 @@ variable "cosmos_containers" {
   }
 }
 
+variable "app_name" {
+  description = "Name of the Container App running the search front end"
+  type        = string
+  default     = "vectorsearch"
+}
+
+variable "registry_name" {
+  description = "Container registry name. Must be globally unique and alphanumeric only."
+  type        = string
+  default     = "acrdevvectordb964eeda7"
+}
+
+variable "container_image" {
+  description = "Image the Container App runs. Must be linux/amd64: Container Apps does not run arm64, and an arm64 image pushes fine then crash-loops with an exec format error."
+  type        = string
+  default     = "acrdevvectordb964eeda7.azurecr.io/vectorsearch:v2"
+
+  # The default names the real image rather than a placeholder so that a plain
+  # `terraform apply` is always safe; defaulting to a placeholder would silently
+  # roll the running app back. Bootstrapping a fresh subscription is the one case
+  # that needs an override, because the registry is empty until an image is
+  # pushed to it:
+  #
+  #   terraform apply -var container_image=mcr.microsoft.com/k8se/quickstart:latest
+  #   az acr login --name <registry> && docker buildx build --platform linux/amd64 \
+  #     -t <registry>.azurecr.io/vectorsearch:v2 --push app/
+  #   terraform apply
+}
+
+variable "cosmos_vector_dimensions" {
+  description = "Vector width the app embeds queries at. Must match the containers' embedding policy, otherwise VectorDistance rejects the query."
+  type        = number
+  default     = 505
+}
+
 variable "tags" {
   description = "Tags applied to the development resource group"
   type        = map(string)

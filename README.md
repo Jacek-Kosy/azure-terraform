@@ -18,6 +18,7 @@ cannot silently follow whatever subscription the Azure CLI happens to have
 selected.
 
 ## Structure
+- app/: containerized search front end, deployed to Azure Container Apps
 - bootstrap/: remote state backend (`rg-tfstate`), applied once before anything else
 - modules/: reusable Terraform modules
 - environments/dev/: development environment entry point, including Azure OpenAI and Cosmos DB
@@ -26,6 +27,21 @@ selected.
 - shared/: common conventions, policies, and helper configuration
 - scripts/: operational helpers
 - docs/: implementation notes
+
+## The app
+
+[app/](app/) is a FastAPI front end on Azure Container Apps, scaling to zero when
+idle. It searches the hand-written corpus, and compares all three vector indexes
+on the same query. Its URL:
+
+```bash
+terraform -chdir=environments/dev output -raw app_url
+```
+
+It holds no credentials: a user-assigned managed identity carries
+`Cognitive Services OpenAI User` and Cosmos **Data Reader**. See
+[app/README.md](app/README.md) for building and deploying, including the
+`--platform linux/amd64` requirement.
 
 ## Vector index comparison
 

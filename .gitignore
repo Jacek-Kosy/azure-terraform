@@ -20,3 +20,4 @@ arduino-synthetic.jsonl
 
 .venv/
 __pycache__/
+*.pyc

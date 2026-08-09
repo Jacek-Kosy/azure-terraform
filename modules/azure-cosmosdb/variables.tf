@@ -109,6 +109,17 @@ variable "data_plane_principal_ids" {
   default     = []
 }
 
+variable "data_plane_reader_principal_ids" {
+  description = "Object IDs granted the built-in Cosmos DB Data Reader role, keyed by a caller-chosen label. For workloads that only query, so they cannot modify the corpus."
+
+  # A map rather than a list, unlike data_plane_principal_ids above, because
+  # these ids typically come from a managed identity created in the same apply.
+  # for_each over a list of values unknown until apply fails at plan time, so the
+  # keys have to be static.
+  type    = map(string)
+  default = {}
+}
+
 variable "tags" {
   description = "Tags applied to the account"
   type        = map(string)
