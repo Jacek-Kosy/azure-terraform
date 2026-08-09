@@ -120,7 +120,7 @@ variable "registry_name" {
 variable "container_image" {
   description = "Image the Container App runs. Must be linux/amd64: Container Apps does not run arm64, and an arm64 image pushes fine then crash-loops with an exec format error."
   type        = string
-  default     = "acrdevvectordb964eeda7.azurecr.io/vectorsearch:v2"
+  default     = "acrdevvectordb964eeda7.azurecr.io/vectorsearch:v3"
 
   # The default names the real image rather than a placeholder so that a plain
   # `terraform apply` is always safe; defaulting to a placeholder would silently

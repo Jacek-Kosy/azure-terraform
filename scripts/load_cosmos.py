@@ -103,9 +103,20 @@ def load(args, container, credential) -> int:
     written = 0
     failures: list[str] = []
 
+    # Request charge is read from each response rather than from
+    # container.client_connection.last_response_headers afterwards: that
+    # attribute is shared mutable state, and these upserts run on many threads.
+    # list.append is atomic under the GIL, so collecting into one is safe.
+    charges: list[float] = []
+
     def upsert(document):
         try:
-            container.upsert_item(document)
+            container.upsert_item(
+                document,
+                response_hook=lambda headers, _: charges.append(
+                    float(headers.get("x-ms-request-charge", 0))
+                ),
+            )
             return None
         except exceptions.CosmosHttpResponseError as exc:
             return f"{document['id']}: {exc.message}"
@@ -125,11 +136,21 @@ def load(args, container, credential) -> int:
         print(f"{len(failures)} failures, first: {failures[0]}", file=sys.stderr)
         return 1
 
+    total_ru = sum(charges)
     print(
         f"loaded {written:,} documents into {args.container} "
         f"in {elapsed:.0f}s ({written / elapsed:.0f}/s)",
         file=sys.stderr,
     )
+    # Writing a vector is far dearer than reading one, and the per-document
+    # figure is what says whether a corpus this size fits the provisioned
+    # throughput. A query over the same container costs single-digit RU.
+    if charges:
+        print(
+            f"  {total_ru:,.0f} RU total, {total_ru / len(charges):.1f} RU per document, "
+            f"{total_ru / elapsed:,.0f} RU/s sustained",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -157,12 +178,15 @@ def query(args, container) -> int:
     if args.topic:
         params.append({"name": "@topic", "value": args.topic})
 
-    results = list(
-        container.query_items(query=sql, parameters=params, enable_cross_partition_query=True)
-    )
+    # Naming the partition key rather than merely filtering on it is what makes
+    # a topic-scoped query cheap: Cosmos routes to one physical partition
+    # instead of fanning out to all of them and merging the results.
+    routing = {"partition_key": args.topic} if args.topic else {"enable_cross_partition_query": True}
+    results = list(container.query_items(query=sql, parameters=params, **routing))
     charge = container.client_connection.last_response_headers.get("x-ms-request-charge", "?")
 
-    print(f"\nQ: {args.query}   [{args.container}, {charge} RU]")
+    scope = f", topic={args.topic}" if args.topic else ""
+    print(f"\nQ: {args.query}   [{args.container}{scope}, {charge} RU]")
     for item in results:
         print(f"   {item['score']:.4f}  [{item['topic']}] {item['title']}")
     return 0

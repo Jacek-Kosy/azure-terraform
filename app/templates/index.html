@@ -18,6 +18,8 @@
     form { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
     input[type=text] { flex: 1 1 22rem; padding: .65rem .8rem; font-size: 1rem; color: var(--fg);
                        background: var(--card); border: 1px solid var(--line); border-radius: 6px; }
+    select { padding: .65rem .5rem; font-size: .95rem; color: var(--fg); background: var(--card);
+             border: 1px solid var(--line); border-radius: 6px; }
     button { padding: .65rem 1.1rem; font-size: .95rem; border-radius: 6px; cursor: pointer;
              border: 1px solid var(--accent); background: var(--accent); color: #fff; }
     button.secondary { background: transparent; color: var(--accent); }
@@ -40,10 +42,22 @@
 <body>
 <main>
   <h1>Arduino vector search</h1>
-  <p class="sub">Semantic search over 1,010 hand-written Arduino chunks, indexed in Azure Cosmos DB.</p>
+  <p class="sub">
+    Semantic search over {% if real_documents %}{{ "{:,}".format(real_documents) }}{% else %}1,010{% endif %}
+    hand-written Arduino chunks, indexed in Azure Cosmos DB.
+    {% if topics %}Narrow to a topic to turn the search into a single-partition query.{% endif %}
+  </p>
 
   <form method="post" action="/search">
     <input type="text" name="query" value="{{ query }}" placeholder="e.g. my board keeps resetting when the motor starts" required autofocus>
+    {% if topics %}
+      <select name="topic" title="Filter to one topic. /topic is the partition key, so this is a single-partition query.">
+        <option value="">All topics</option>
+        {% for t in topics %}
+          <option value="{{ t }}" {{ 'selected' if t == topic }}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    {% endif %}
     <button type="submit">Search</button>
     <button type="submit" formaction="/compare" class="secondary">Compare indexes</button>
   </form>
@@ -58,6 +72,12 @@
       &middot; {{ "%.2f"|format(result.request_units) }} RU
       &middot; {{ "%.0f"|format(result.latency_ms) }} ms
       &middot; hand-written corpus only
+      {% if result.scope is not none %}
+        &middot; ranked {{ "{:,}".format(result.scope) }} chunks
+      {% endif %}
+      {% if result.single_partition %}
+        &middot; <strong>one partition</strong> ({{ topic }})
+      {% endif %}
     </p>
     {% for hit in result.hits %}
       <div class="card">
@@ -71,10 +91,20 @@
   {% endif %}
 
   {% if comparison %}
+    {% set scope = comparison[0].result.scope %}
     <p class="meta">
       Same query and same embedding against every index, over the whole corpus including
       generated filler. Recall is measured against <strong>flat</strong>, which is exhaustive
       and therefore exact.
+      {% if comparison[0].result.single_partition %}
+        Scoped to <strong>{{ topic }}</strong>{% if scope is not none %},
+        {{ "{:,}".format(scope) }} of {{ "{:,}".format(total_documents) }} documents{% endif %},
+        and served from one partition. Latency falls for every index, but cost does not:
+        diskANN earns its advantage by skipping vectors, so a narrow search charges it more
+        than a wide one. Run it unfiltered to see the difference.
+      {% elif scope is not none %}
+        All {{ "{:,}".format(scope) }} documents, fanned out across every partition.
+      {% endif %}
     </p>
     <div class="card scroll">
       <table>

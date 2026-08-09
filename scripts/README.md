@@ -85,6 +85,21 @@ export COSMOS_ENDPOINT="$(terraform -chdir=environments/dev output -raw cosmos_e
 `--offset` and `--limit` load a slice, which is how a corpus is grown in steps
 to measure how the index comparison shifts with size.
 
+A load reports its request charge, which is the figure that decides whether a
+corpus fits the provisioned throughput:
+
+```
+loaded 50 documents into chunks_diskann in 6s (9/s)
+  4,662 RU total, 93.2 RU per document, 831 RU/s sustained
+```
+
+Writing one 505-dimensional vector costs about 93 RU — an order of magnitude
+more than searching the entire hand-written corpus, which is why loading
+throttles and querying does not.
+
+`--topic` on a query names the partition key rather than merely filtering on
+it, so Cosmos serves the query from one partition instead of fanning out.
+
 Bulk loading throttles with `TooManyRequests` against the default 1000 RU/s
 autoscale ceiling. Raise it for the load and lower it afterwards:
 
@@ -109,3 +124,14 @@ exact.
 
 Run it after each load step. The comparison is only meaningful above 1000
 vectors, below which Cosmos runs a full scan regardless of index type.
+
+`--topic` restricts every query to one topic, which both narrows the scoped set
+and makes the query single-partition:
+
+```bash
+.venv/bin/python scripts/benchmark_indexes.py --topic sensors
+```
+
+Worth running both ways. Which index is cheapest is not a fixed property of the
+corpus — the filter moves it. See
+[../docs/filtered-vector-search.md](../docs/filtered-vector-search.md).
